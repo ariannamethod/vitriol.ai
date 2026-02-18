@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
 Vitriol — Dataset Collector
-Downloads caricature art from Wikimedia Commons.
-Artists: Honoré Daumier, Thomas Nast, James Gillray
+Downloads art from Wikimedia Commons for GAN training.
+
+Styles:
+  caricature  — Honoré Daumier, Thomas Nast, James Gillray
+  graffiti    — street art, graffiti, murals
+  propaganda  — Soviet constructivist posters, Rodchenko, Lissitzky
+  pixel       — pixel art, 8-bit game art
 """
 
 import os
@@ -18,21 +23,64 @@ from io import BytesIO
 
 DATA_DIR = Path(__file__).parent / "data"
 
-CATEGORIES = {
-    "daumier": [
-        "Category:Prints by Honoré Daumier",
-        "Category:Caricatures by Honoré Daumier",
-        "Category:Lithographs by Honoré Daumier",
-    ],
-    "nast": [
-        "Category:Thomas Nast",
-        "Category:Cartoons by Thomas Nast",
-    ],
-    "gillray": [
-        "Category:James Gillray",
-        "Category:Prints by James Gillray",
-    ],
+STYLES = {
+    "caricature": {
+        "daumier": [
+            "Category:Prints by Honoré Daumier",
+            "Category:Caricatures by Honoré Daumier",
+            "Category:Lithographs by Honoré Daumier",
+        ],
+        "nast": [
+            "Category:Thomas Nast",
+            "Category:Cartoons by Thomas Nast",
+        ],
+        "gillray": [
+            "Category:James Gillray",
+            "Category:Prints by James Gillray",
+        ],
+    },
+    "graffiti": {
+        "street_art": [
+            "Category:Graffiti in Berlin",
+            "Category:Graffiti in London",
+            "Category:Graffiti in New York City",
+            "Category:Street art in Berlin",
+            "Category:Street art in London",
+        ],
+        "murals": [
+            "Category:Murals in Berlin",
+            "Category:Murals in Los Angeles",
+        ],
+    },
+    "propaganda": {
+        "soviet_posters": [
+            "Category:Soviet propaganda posters",
+            "Category:Soviet World War II posters",
+            "Category:Constructivism (art)",
+        ],
+        "rodchenko": [
+            "Category:Alexander Rodchenko",
+        ],
+        "lissitzky": [
+            "Category:El Lissitzky",
+        ],
+    },
+    "pixel": {
+        "pixel_art": [
+            "Category:Pixel art",
+            "Category:Pixel art characters",
+        ],
+        "game_sprites": [
+            "Category:Video game sprites",
+            "Category:8-bit art",
+        ],
+    },
 }
+
+# Flat view for backward compat
+CATEGORIES = {}
+for style_cats in STYLES.values():
+    CATEGORIES.update(style_cats)
 
 HEADERS = {"User-Agent": "Vitriol/1.0 (ariannamethod; dataset collection)"}
 IMG_SIZE = 128
@@ -104,17 +152,28 @@ def download_and_resize(url, out_path, size=IMG_SIZE):
         return False
 
 
-def collect(artists=None, per_category=200):
+def collect(style=None, sources=None, per_category=200):
     DATA_DIR.mkdir(exist_ok=True)
-    if artists is None:
-        artists = list(CATEGORIES.keys())
+
+    # Determine which sources to collect
+    if style:
+        style_cats = STYLES.get(style, {})
+        if sources:
+            to_collect = {s: style_cats[s] for s in sources if s in style_cats}
+        else:
+            to_collect = style_cats
+    elif sources:
+        to_collect = {s: CATEGORIES[s] for s in sources if s in CATEGORIES}
+    else:
+        to_collect = CATEGORIES
 
     total = 0
-    for artist in artists:
-        cats = CATEGORIES.get(artist, [])
-        print(f"\n=== {artist.upper()} ({len(cats)} categories) ===")
-        artist_dir = DATA_DIR / artist
-        artist_dir.mkdir(exist_ok=True)
+    collected_dirs = []
+    for source, cats in to_collect.items():
+        print(f"\n=== {source.upper()} ({len(cats)} categories) ===")
+        source_dir = DATA_DIR / source
+        source_dir.mkdir(exist_ok=True)
+        collected_dirs.append(source_dir)
 
         for cat in cats:
             print(f"\n  {cat}")
@@ -122,39 +181,39 @@ def collect(artists=None, per_category=200):
             print(f"  Found {len(urls)} images")
 
             for i, url in enumerate(urls):
-                # deterministic filename from URL
                 name = hashlib.md5(url.encode()).hexdigest()[:12] + ".png"
-                out = artist_dir / name
+                out = source_dir / name
                 if out.exists():
                     continue
                 if download_and_resize(url, out):
                     total += 1
                     if (i + 1) % 10 == 0:
                         print(f"  Downloaded {i+1}/{len(urls)}")
-                time.sleep(0.3)  # rate limit
+                time.sleep(0.3)
 
-    # merge all into flat data/ for training
-    all_dir = DATA_DIR / "all"
-    all_dir.mkdir(exist_ok=True)
-    for artist in artists:
-        artist_dir = DATA_DIR / artist
-        if artist_dir.exists():
-            for f in artist_dir.glob("*.png"):
-                dest = all_dir / f"{artist}_{f.name}"
-                if not dest.exists():
-                    os.link(f, dest)
+    # Merge into style directory for training
+    style_name = style or "all"
+    merge_dir = DATA_DIR / style_name
+    merge_dir.mkdir(exist_ok=True)
+    for d in collected_dirs:
+        for f in d.glob("*.png"):
+            dest = merge_dir / f"{d.name}_{f.name}"
+            if not dest.exists():
+                os.link(f, dest)
 
-    final_count = len(list(all_dir.glob("*.png")))
+    final_count = len(list(merge_dir.glob("*.png")))
     print(f"\n{'='*40}")
     print(f"Total images collected: {total}")
-    print(f"Combined dataset: {final_count} images in {all_dir}")
+    print(f"Combined dataset: {final_count} images in {merge_dir}")
     print(f"Ready for training!")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Vitriol dataset collector")
-    parser.add_argument("--artists", nargs="+", choices=list(CATEGORIES.keys()),
-                        help="Which artists to collect (default: all)")
+    parser.add_argument("--style", choices=list(STYLES.keys()),
+                        help="Style to collect (caricature, graffiti)")
+    parser.add_argument("--sources", nargs="+",
+                        help="Specific sources within style")
     parser.add_argument("--per-category", type=int, default=200,
                         help="Max images per category (default: 200)")
     parser.add_argument("--size", type=int, default=128,
@@ -164,4 +223,4 @@ if __name__ == "__main__":
     if args.size != IMG_SIZE:
         IMG_SIZE = args.size
 
-    collect(artists=args.artists, per_category=args.per_category)
+    collect(style=args.style, sources=args.sources, per_category=args.per_category)
