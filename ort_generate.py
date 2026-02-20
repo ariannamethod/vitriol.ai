@@ -144,7 +144,7 @@ class DDIMScheduler:
 # ---- Main pipeline ----
 
 def generate(onnx_dir, tokenizer_dir, prompt, output_path, seed=42, num_steps=25,
-             guidance_scale=7.5, latent_size=64):
+             guidance_scale=7.5, latent_size=64, ascii_mode=True):
     import onnxruntime as ort
 
     providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
@@ -236,14 +236,28 @@ def generate(onnx_dir, tokenizer_dir, prompt, output_path, seed=42, num_steps=25
     print(f"  VAE decode: {time.time()-t0:.3f}s")
     print(f"  Output: {image.shape}, range=[{image.min():.3f}, {image.max():.3f}]")
 
-    # Convert to PIL and save
+    # Convert to PIL
     img = image[0]  # [3, H, W]
     img = np.clip((img + 1) / 2, 0, 1)  # [-1,1] → [0,1]
     img = (img * 255).astype(np.uint8)
     img = np.transpose(img, (1, 2, 0))  # CHW → HWC
     pil_img = Image.fromarray(img)
-    pil_img.save(output_path)
-    print(f"\nSaved: {output_path} ({pil_img.size[0]}x{pil_img.size[1]})")
+
+    if ascii_mode:
+        # ASCII filter is the DEFAULT output — technopunk Warhol style
+        from ascii_filter import image_to_ascii_png
+        print("\n--- Phase 4: ASCII Filter (punk charset) ---")
+        t0 = time.time()
+        image_to_ascii_png(pil_img, output_path, width=80, charset="punk",
+                          font_size=22, brightness_boost=1.6)
+        print(f"  ASCII render: {time.time()-t0:.3f}s")
+        # Also save raw image alongside
+        raw_path = output_path.rsplit(".", 1)[0] + "_raw.png"
+        pil_img.save(raw_path)
+        print(f"\nSaved: {output_path} (ASCII) + {raw_path} (raw)")
+    else:
+        pil_img.save(output_path)
+        print(f"\nSaved: {output_path} ({pil_img.size[0]}x{pil_img.size[1]})")
 
     total = time.time() - total_t0
     print(f"Total generation time: {total:.2f}s")
@@ -251,15 +265,20 @@ def generate(onnx_dir, tokenizer_dir, prompt, output_path, seed=42, num_steps=25
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
-        print("Usage: python3 ort_generate.py <onnx_dir> <tokenizer_dir> \"prompt\" [output.png] [seed] [steps] [cfg]")
+        print("Usage: python3 ort_generate.py <onnx_dir> <tokenizer_dir> \"prompt\" [output.png] [seed] [steps] [cfg] [--raw]")
+        print("  --raw  Disable ASCII filter (output raw pixels)")
+        print("  Default: ASCII filter ON (technopunk Warhol style)")
         sys.exit(1)
 
-    onnx_dir = sys.argv[1]
-    tokenizer_dir = sys.argv[2]
-    prompt = sys.argv[3]
-    output = sys.argv[4] if len(sys.argv) > 4 else "ort_output.png"
-    seed = int(sys.argv[5]) if len(sys.argv) > 5 else 42
-    steps = int(sys.argv[6]) if len(sys.argv) > 6 else 25
-    cfg = float(sys.argv[7]) if len(sys.argv) > 7 else 7.5
+    raw_mode = "--raw" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--raw"]
 
-    generate(onnx_dir, tokenizer_dir, prompt, output, seed, steps, cfg)
+    onnx_dir = args[0]
+    tokenizer_dir = args[1]
+    prompt = args[2]
+    output = args[3] if len(args) > 3 else "ort_output.png"
+    seed = int(args[4]) if len(args) > 4 else 42
+    steps = int(args[5]) if len(args) > 5 else 25
+    cfg = float(args[6]) if len(args) > 6 else 7.5
+
+    generate(onnx_dir, tokenizer_dir, prompt, output, seed, steps, cfg, ascii_mode=not raw_mode)

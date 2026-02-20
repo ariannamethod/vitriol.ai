@@ -6,7 +6,21 @@ You don't tell Yent what to draw. You say something, and Yent draws what he thin
 
 **micro-Yent is the first model built with [nanollama](https://github.com/ariannamethod/nanollama)** — our from-scratch LLM training framework. 69M parameters, LLaMA 3 architecture, trained on 216M tokens of FineWeb-Edu + Yent personality data. 3000 steps on A100. No API calls, no borrowed models — pure homebrew.
 
-## Gallery
+## Gallery (ASCII default)
+
+Output is ASCII art by default — colored glyphs (`·•×#█`) on black. Technopunk Warhol. Each pixel becomes a character.
+
+| You say | Yent thinks | Yent draws |
+|---------|-------------|------------|
+| "the meaning of life" | *"a strange scene showing the first time"* | ![meaning](gallery_ascii/the_meaning_of_life_ascii.png) |
+| "fuck off" | *"an explosion of broken phrases"* | ![fuckoff](gallery_ascii/fuck_off_ascii.png) |
+| "you are beautiful" | *"a burning rose growing from the ashes of a new stillbirth"* | ![beautiful](gallery_ascii/you_are_beautiful_ascii.png) |
+| "hello" | *"a punk hand waving from the pot"* | ![hello](gallery_ascii/hello_ascii.png) |
+| "I feel nothing" | *"an empty chair staring at the desk of time"* | ![nothing](gallery_ascii/i_feel_nothing_ascii.png) |
+| "my code has bugs" | *"a twisted landscape with obsolescence"* | ![bugs](gallery_ascii/my_code_has_bugs_ascii.png) |
+
+<details>
+<summary>Raw images (before ASCII filter)</summary>
 
 | You say | Yent thinks | Yent draws |
 |---------|-------------|------------|
@@ -21,6 +35,8 @@ You don't tell Yent what to draw. You say something, and Yent draws what he thin
 | "the universe is expanding" | *"chaos, or perhaps a gathering of dust in a black jar"* | ![universe](gallery/the_universe_is_expanding.png) |
 | "hello" | *"a punk hand waving from the pot"* | ![hello](gallery/hello.png) |
 | "test" | *"a surreal painting of resonance. The idea isn't in paranoia"* | ![test](gallery/test.png) |
+
+</details>
 
 Every reaction is different. Adaptive temperature — boring input gets more chaos, emotional input stays focused.
 

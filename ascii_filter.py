@@ -90,6 +90,84 @@ def image_to_ascii(image_path, width=100, charset="punk", color=True, bg_color=F
     return "\n".join(lines)
 
 
+def image_to_ascii_png(image_path, out_path=None, width=80, charset="punk",
+                       font_size=22, brightness_boost=1.6):
+    """Convert image to colored ASCII art rendered as PNG.
+
+    This is the DEFAULT output mode for yent.yo — technopunk Warhol style.
+    Each pixel becomes a colored glyph on black background.
+
+    Args:
+        image_path: Path to source image (or PIL Image)
+        out_path: Output PNG path (if None, returns PIL Image)
+        width: Columns of characters
+        font_size: Monospace font size in pixels
+        brightness_boost: Color brightness multiplier (>1 = brighter)
+
+    Returns:
+        PIL Image if out_path is None, else saves and returns path
+    """
+    from PIL import ImageDraw, ImageFont
+
+    # Load font
+    font = None
+    for fp in ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+               "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+               "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
+               "/System/Library/Fonts/Menlo.ttc",
+               "/System/Library/Fonts/Monaco.ttf"]:
+        if os.path.exists(fp):
+            try:
+                font = ImageFont.truetype(fp, font_size)
+                break
+            except Exception:
+                continue
+    if font is None:
+        font = ImageFont.load_default()
+
+    char_w = font.getbbox("█")[2]
+    char_h = font_size + 3
+
+    # Load source
+    if isinstance(image_path, Image.Image):
+        img = image_path.convert("RGB")
+    else:
+        img = Image.open(image_path).convert("RGB")
+
+    chars = CHARSETS.get(charset, charset)
+    num_chars = len(chars)
+
+    aspect = img.height / img.width
+    height = int(width * aspect * 0.45)
+    img = img.resize((width, height), Image.LANCZOS)
+    pixels = img.load()
+
+    # Create canvas
+    out_w = width * char_w
+    out_h = height * char_h
+    canvas = Image.new("RGB", (out_w, out_h), (8, 8, 12))
+    draw = ImageDraw.Draw(canvas)
+
+    for y in range(height):
+        for x in range(width):
+            r, g, b = pixels[x, y]
+            br = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+            idx = max(0, min(int(br * (num_chars - 1)), num_chars - 1))
+            ch = chars[idx]
+            if ch == " ":
+                continue
+            # Boost brightness
+            cr = min(255, int(r * brightness_boost))
+            cg = min(255, int(g * brightness_boost))
+            cb = min(255, int(b * brightness_boost))
+            draw.text((x * char_w, y * char_h), ch, fill=(cr, cg, cb), font=font)
+
+    if out_path:
+        canvas.save(out_path)
+        return out_path
+    return canvas
+
+
 def image_to_ascii_html(image_path, width=100, charset="punk"):
     """Convert image to colored ASCII as HTML (for saving/sharing)."""
     img = Image.open(image_path).convert("RGB")
@@ -130,7 +208,7 @@ def image_to_ascii_html(image_path, width=100, charset="punk"):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 ascii_filter.py <image> [width] [--no-color] [--charset <set>] [--bg] [--html out.html]")
+        print("Usage: python3 ascii_filter.py <image> [width] [--no-color] [--charset <set>] [--bg] [--html out.html] [--png out.png]")
         print(f"Charsets: {', '.join(CHARSETS.keys())}")
         sys.exit(1)
 
@@ -140,6 +218,7 @@ if __name__ == "__main__":
     charset = "punk"
     bg = False
     html_out = None
+    png_out = None
 
     i = 2
     while i < len(sys.argv):
@@ -154,6 +233,9 @@ if __name__ == "__main__":
         elif arg == "--html" and i + 1 < len(sys.argv):
             i += 1
             html_out = sys.argv[i]
+        elif arg == "--png" and i + 1 < len(sys.argv):
+            i += 1
+            png_out = sys.argv[i]
         else:
             try:
                 width = int(arg)
@@ -161,7 +243,11 @@ if __name__ == "__main__":
                 pass
         i += 1
 
-    if html_out:
+    if png_out:
+        image_to_ascii_png(image_path, png_out, width, charset)
+        sz = os.path.getsize(png_out) / 1024
+        print(f"Saved: {png_out} ({sz:.0f}KB)")
+    elif html_out:
         html = image_to_ascii_html(image_path, width, charset)
         with open(html_out, "w") as f:
             f.write(html)
