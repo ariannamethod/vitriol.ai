@@ -127,41 +127,127 @@ var styleSuffixes = []string{
 	", street art style, spray paint, raw energy",
 }
 
-// adaptTemperature adjusts temperature based on input characteristics.
-// Boring/short input → higher temp (Yent gets creative to compensate).
-// Emotional/long input → lower temp (strong signal, stay focused).
-func adaptTemperature(input string, baseTemp float32) float32 {
+// --- Dissonance-based temperature (inspired by Harmonix/HAiKU) ---
+//
+// Dissonance = how "strange" the input is relative to what the system knows.
+// High dissonance → high temperature → creative chaos.
+// Low dissonance → low temperature → focused response.
+//
+// Four pulse metrics:
+//   novelty:       fraction of words unknown to our keyword vocabulary
+//   entropy:       unique_words / total_words (word diversity)
+//   arousal:       emotional keyword density (high arousal → LESS dissonance)
+//   lengthPressure: shorter input → higher pressure
+//
+// dissonance ∈ [0, 1] → temperature ∈ [0.5, 1.0]
+
+// allKnownWords is the union of all mood keywords + boring + strong words.
+// Words the system "recognizes" reduce novelty.
+var allKnownWords = func() map[string]bool {
+	known := map[string]bool{}
+	for _, mt := range moodTemplates {
+		for _, kw := range mt.keywords {
+			known[kw] = true
+		}
+	}
+	for _, w := range []string{"hello", "hi", "hey", "ok", "test", "привет", "ок",
+		"the", "a", "an", "is", "am", "are", "i", "you", "me", "my", "we",
+		"it", "to", "of", "and", "in", "on", "for", "so", "do", "not", "no",
+		"yes", "but", "or", "if", "at", "by", "up", "out", "all", "just",
+		"like", "what", "why", "how", "when", "who", "this", "that", "with",
+		"from", "have", "has", "had", "was", "were", "will", "would", "can",
+		"could", "should", "want", "need", "know", "think", "feel", "make",
+		"go", "get", "see", "say", "tell", "give", "take", "come", "some",
+		"very", "really", "much", "too", "more", "about", "your", "our",
+		"его", "на", "не", "и", "в", "я", "ты", "мне", "меня"} {
+		known[w] = true
+	}
+	return known
+}()
+
+// arousalWords trigger focused (low-dissonance) responses
+var arousalWords = map[string]bool{
+	"hate": true, "love": true, "die": true, "kill": true, "fuck": true,
+	"death": true, "dead": true, "cry": true, "sad": true, "angry": true,
+	"beautiful": true, "alone": true, "lonely": true, "miss": true, "hurt": true,
+	"ненавижу": true, "люблю": true, "смерть": true, "плачу": true, "больно": true,
+}
+
+// computeDissonance measures how "strange" the input is to the system.
+// Returns dissonance ∈ [0, 1].
+func computeDissonance(input string) float32 {
 	lower := strings.ToLower(input)
-	words := strings.Fields(input)
+	words := strings.Fields(lower)
 	nWords := len(words)
-
-	temp := baseTemp
-
-	// Short/lazy input → crank up creativity
-	if nWords <= 3 {
-		temp += 0.1
-	}
-	if nWords <= 1 {
-		temp += 0.1
+	if nWords == 0 {
+		return 1.0 // empty input = max dissonance
 	}
 
-	// Boring/generic input → more chaos
-	boring := []string{"hello", "hi", "hey", "ok", "test", "привет", "ок"}
-	for _, b := range boring {
-		if lower == b {
-			temp += 0.15
-			break
+	// Novelty: fraction of words unknown to system
+	unknownCount := 0
+	for _, w := range words {
+		if !allKnownWords[w] {
+			unknownCount++
 		}
 	}
+	novelty := float32(unknownCount) / float32(nWords)
 
-	// Strong emotion → stay focused
-	strong := []string{"hate", "love", "die", "kill", "fuck", "death", "ненавижу", "люблю", "смерть"}
-	for _, s := range strong {
-		if strings.Contains(lower, s) {
-			temp -= 0.1
-			break
+	// Entropy: word diversity (unique / total)
+	unique := map[string]bool{}
+	for _, w := range words {
+		unique[w] = true
+	}
+	entropy := float32(len(unique)) / float32(nWords)
+
+	// Arousal: emotional keyword density (high → focused → low dissonance)
+	arousalCount := 0
+	for _, w := range words {
+		if arousalWords[w] {
+			arousalCount++
 		}
 	}
+	// Also check substrings for Russian stems
+	for aw := range arousalWords {
+		if strings.Contains(lower, aw) {
+			arousalCount++
+		}
+	}
+	arousal := float32(arousalCount) / float32(nWords+1)
+	if arousal > 1.0 {
+		arousal = 1.0
+	}
+
+	// Length pressure: shorter → more pressure
+	lengthPressure := float32(1.0) / float32(nWords)
+	if lengthPressure > 1.0 {
+		lengthPressure = 1.0
+	}
+
+	// Combine: novelty and length push dissonance up, arousal pulls it down
+	dissonance := 0.30*novelty + 0.25*entropy + 0.25*lengthPressure + 0.20*(1.0-arousal)
+
+	// Clamp
+	if dissonance < 0 {
+		dissonance = 0
+	}
+	if dissonance > 1 {
+		dissonance = 1
+	}
+
+	return dissonance
+}
+
+// adaptTemperature maps dissonance to temperature.
+// Dissonance ∈ [0, 1] → temperature ∈ [0.5, 1.0].
+// Inspired by Harmonix/HAiKU pressure system.
+func adaptTemperature(input string, baseTemp float32) float32 {
+	d := computeDissonance(input)
+
+	// Map: dissonance 0 → 0.5, dissonance 1 → 1.0
+	temp := 0.5 + d*0.5
+
+	// Blend with base temp (respect caller's hint)
+	temp = 0.6*temp + 0.4*baseTemp
 
 	// Clamp to [0.5, 1.0]
 	if temp < 0.5 {
@@ -178,8 +264,10 @@ func adaptTemperature(input string, baseTemp float32) float32 {
 // Hybrid approach: keyword → visual template → micro-Yent fills details → style suffix
 // Temperature adapts to input: boring → more chaos, emotional → more focused.
 func (pg *PromptGenerator) React(userInput string, maxTokens int, temperature float32) string {
-	// Adapt temperature based on input
+	// Compute dissonance and adapt temperature
+	dissonance := computeDissonance(userInput)
 	temperature = adaptTemperature(userInput, temperature)
+	fmt.Fprintf(os.Stderr, "[react] input=%q d=%.2f T=%.2f\n", userInput, dissonance, temperature)
 
 	lower := strings.ToLower(userInput)
 
