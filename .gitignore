@@ -4,3 +4,27 @@ weights/*.bin
 checkpoints/
 samples/
 __pycache__/
+.DS_Store
+
+# ONNX weights (hosted on HuggingFace)
+onnx_fp16/
+onnx_int8/
+
+# LoRA adapters (hosted on HuggingFace)
+lora/
+
+# Training scripts (kept locally, not in repo)
+train_lora.py
+train_all.sh
+collect.py
+fix_weights.py
+
+# Test outputs
+e2e_test/
+e2e_react/
+*_output*.png
+reference_*.png
+
+# Local model cache
+bk-sdm-tiny/
+bk-sdm-tiny-hf/
