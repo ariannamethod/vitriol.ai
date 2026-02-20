@@ -248,8 +248,8 @@ def generate(onnx_dir, tokenizer_dir, prompt, output_path, seed=42, num_steps=25
         from ascii_filter import image_to_ascii_png
         print("\n--- Phase 4: ASCII Filter (punk charset) ---")
         t0 = time.time()
-        image_to_ascii_png(pil_img, output_path, width=80, charset="punk",
-                          font_size=22, brightness_boost=1.6)
+        image_to_ascii_png(pil_img, output_path, width=100, charset="techno",
+                          font_size=16, brightness_boost=2.8, bg_level=0.50)
         print(f"  ASCII render: {time.time()-t0:.3f}s")
         # Also save raw image alongside
         raw_path = output_path.rsplit(".", 1)[0] + "_raw.png"

@@ -10,6 +10,7 @@ Usage:
   python3 ascii_filter.py lora_cat_graffiti.png 80 --charset blocks
 
 Charsets:
+  techno    — " .·:;=+×*#%@█" (13 levels, yent.yo default)
   standard  — " .:-=+*#%@" (classic)
   detailed  — " .'`^\",:;Il!i><~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$"
   blocks    — " ░▒▓█" (unicode blocks)
@@ -23,15 +24,16 @@ from PIL import Image
 
 # ASCII character sets ordered by "darkness" (light → dark)
 CHARSETS = {
+    "techno": " .·:;=+×*#%@█",  # 13 levels — yent.yo default
+    "punk": " ·•×#█",  # 6 levels — legacy
     "standard": " .:-=+*#%@",
     "detailed": " .'`^\",:;Il!i><~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$",
     "blocks": " ░▒▓█",
     "minimal": " .oO@",
-    "punk": " ·•×#█",  # yent.yo default
 }
 
 
-def image_to_ascii(image_path, width=100, charset="punk", color=True, bg_color=False):
+def image_to_ascii(image_path, width=100, charset="techno", color=True, bg_color=False):
     """Convert image to colored ASCII string.
 
     Args:
@@ -90,26 +92,27 @@ def image_to_ascii(image_path, width=100, charset="punk", color=True, bg_color=F
     return "\n".join(lines)
 
 
-def image_to_ascii_png(image_path, out_path=None, width=80, charset="punk",
-                       font_size=22, brightness_boost=1.6):
+def image_to_ascii_png(image_path, out_path=None, width=100, charset="techno",
+                       font_size=16, brightness_boost=2.8, bg_level=0.50):
     """Convert image to colored ASCII art rendered as PNG.
 
     This is the DEFAULT output mode for yent.yo — technopunk Warhol style.
-    Each pixel becomes a colored glyph on black background.
+    Each pixel becomes a colored glyph on a tinted background cell.
 
     Args:
         image_path: Path to source image (or PIL Image)
         out_path: Output PNG path (if None, returns PIL Image)
         width: Columns of characters
         font_size: Monospace font size in pixels
-        brightness_boost: Color brightness multiplier (>1 = brighter)
+        brightness_boost: Foreground color multiplier (>1 = brighter glyphs)
+        bg_level: Background fill intensity per cell (0=black, 1=full color)
 
     Returns:
         PIL Image if out_path is None, else saves and returns path
     """
     from PIL import ImageDraw, ImageFont
 
-    # Load font
+    # Load font (prefer bold monospace)
     font = None
     for fp in ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
@@ -154,13 +157,24 @@ def image_to_ascii_png(image_path, out_path=None, width=80, charset="punk",
             br = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
             idx = max(0, min(int(br * (num_chars - 1)), num_chars - 1))
             ch = chars[idx]
+
+            px, py = x * char_w, y * char_h
+
+            # Background fill per cell — tinted with pixel color
+            bg_r = min(255, int(r * bg_level))
+            bg_g = min(255, int(g * bg_level))
+            bg_b = min(255, int(b * bg_level))
+            draw.rectangle([px, py, px + char_w - 1, py + char_h - 1],
+                           fill=(bg_r, bg_g, bg_b))
+
             if ch == " ":
                 continue
-            # Boost brightness
+
+            # Bright foreground glyph
             cr = min(255, int(r * brightness_boost))
             cg = min(255, int(g * brightness_boost))
             cb = min(255, int(b * brightness_boost))
-            draw.text((x * char_w, y * char_h), ch, fill=(cr, cg, cb), font=font)
+            draw.text((px, py), ch, fill=(cr, cg, cb), font=font)
 
     if out_path:
         canvas.save(out_path)
@@ -168,7 +182,7 @@ def image_to_ascii_png(image_path, out_path=None, width=80, charset="punk",
     return canvas
 
 
-def image_to_ascii_html(image_path, width=100, charset="punk"):
+def image_to_ascii_html(image_path, width=100, charset="techno"):
     """Convert image to colored ASCII as HTML (for saving/sharing)."""
     img = Image.open(image_path).convert("RGB")
 
@@ -215,7 +229,7 @@ if __name__ == "__main__":
     image_path = sys.argv[1]
     width = 100
     color = True
-    charset = "punk"
+    charset = "techno"
     bg = False
     html_out = None
     png_out = None

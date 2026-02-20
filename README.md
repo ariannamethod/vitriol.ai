@@ -8,16 +8,18 @@ You don't tell Yent what to draw. You say something, and Yent draws what he thin
 
 ## Gallery (ASCII default)
 
-Output is ASCII art by default — colored glyphs (`·•×#█`) on black. Technopunk Warhol. Each pixel becomes a character.
+Output is ASCII art by default — colored glyphs (` .·:;=+×*#%@█`) on tinted cells. Technopunk Warhol. Each pixel becomes a character.
 
 | You say | Yent thinks | Yent draws |
 |---------|-------------|------------|
-| "the meaning of life" | *"a strange scene showing the first time"* | ![meaning](gallery_ascii/the_meaning_of_life_ascii.png) |
-| "fuck off" | *"an explosion of broken phrases"* | ![fuckoff](gallery_ascii/fuck_off_ascii.png) |
 | "you are beautiful" | *"a burning rose growing from the ashes of a new stillbirth"* | ![beautiful](gallery_ascii/you_are_beautiful_ascii.png) |
+| "fuck off" | *"an explosion of broken phrases"* | ![fuckoff](gallery_ascii/fuck_off_ascii.png) |
+| "the meaning of life" | *"a strange scene showing the first time"* | ![meaning](gallery_ascii/the_meaning_of_life_ascii.png) |
 | "hello" | *"a punk hand waving from the pot"* | ![hello](gallery_ascii/hello_ascii.png) |
 | "I feel nothing" | *"an empty chair staring at the desk of time"* | ![nothing](gallery_ascii/i_feel_nothing_ascii.png) |
 | "my code has bugs" | *"a twisted landscape with obsolescence"* | ![bugs](gallery_ascii/my_code_has_bugs_ascii.png) |
+| "draw me a cat" | *"a cat with glowing eyes staring at your sunset"* | ![cat](gallery_ascii/draw_me_a_cat_ascii.png) |
+| "revolution" | *"a glitching image of chaos and defiance"* | ![revolution](gallery_ascii/revolution_ascii.png) |
 
 <details>
 <summary>Raw images (before ASCII filter)</summary>
@@ -139,6 +141,20 @@ Each style = one .safetensors file (~7MB), applied at runtime via `W += B @ A`.
 | **caricature** | DONE (needs more data) | Satirical, soc-art |
 | **propaganda** | TODO | Soviet constructivism |
 | **pixel** | TODO | 8-bit retro |
+
+## ASCII Filter
+
+Default output: 13-level charset ` .·:;=+×*#%@█` with per-cell background tint and bright foreground glyphs.
+
+| Setting | Value |
+|---|---|
+| Charset | `techno` — 13 brightness levels |
+| Foreground boost | 2.8x (vivid glyphs) |
+| Background fill | 0.50 (tinted cells, not just black) |
+| Font | 16px bold monospace |
+| Width | 100 columns |
+
+Use `--raw` to skip ASCII and get raw pixels.
 
 ## Benchmarks (A100 GPU)
 
