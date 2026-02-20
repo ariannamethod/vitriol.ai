@@ -53,13 +53,25 @@ You say something
 │  micro-Yent  │────>│  BK-SDM-Tiny (ONNX Runtime)  │
 │  69M LLM Q8  │     │  CLIP → UNet → VAE → PNG     │
 │  (Go, GGUF)  │     │  + LoRA style adapters       │
-└──────────────┘     └──────────────────────────────┘
+└──────┬───────┘     └──────────────┬───────────────┘
   mood detection              512x512 image
   → visual template                 │
-  → LLM fills details        ┌─────▼──────┐
-  → style suffix             │ASCII filter│
-                             │ (optional) │
-                             └────────────┘
+  → LLM fills details        ┌─────▼──────────┐
+  → style suffix             │  Film grain    │
+       │                     │  (depth layer) │
+       │                     └──────┬─────────┘
+       │                     ┌──────▼─────────┐
+       │                     │Artifact detect │
+       │                     │(gradient var.) │
+       │                     └──────┬─────────┘
+       │                     ┌──────▼─────────┐
+       └────────────────────>│ ASCII blend    │
+         Yent's words fill   │ score³ opacity │
+         artifact zones      └──────┬─────────┘
+                             ┌──────▼─────────┐
+                             │ Second grain   │
+                             │ (cohesion)     │
+                             └────────────────┘
 ```
 
 1. You say something
@@ -138,26 +150,44 @@ Each style = one .safetensors file (~7MB), applied at runtime via `W += B @ A`.
 | Style | Status | Character |
 |---|---|---|
 | **base** | DONE | Oil painting, vivid |
-| **graffiti** | DONE | Street art, spray paint, tags |
-| **caricature** | DONE (needs more data) | Satirical, soc-art |
-| **propaganda** | TODO | Soviet constructivism |
-| **pixel** | TODO | 8-bit retro |
+| **expressionist** | DONE | Chagall/Kandinsky, bold brushstrokes |
+| **graffiti** | DONE | Street art, spray paint, chaotic energy |
+| **socart** | DONE | Soviet satirical art, constructivism |
+| **picasso** | DONE | Late Picasso/Cubism/Naive Art, simple bold forms |
+| **caricature** | DONE | Satirical, exaggerated |
 
-## ASCII Filter
+## Artifact-Aware Post-Processing
 
-Default output: 13-level charset ` .·:;=+×*#%@█` with per-cell background tint and bright foreground glyphs.
+The AI fixes itself. Blurry/smeared zones in the generated image are detected via **gradient variance analysis**, and micro-Yent's own words are overlaid in those zones. Artifacts become the canvas for Yent's thoughts.
+
+```
+SD image → Film grain (depth layer) → Artifact score map → Variable-opacity ASCII blend → Second grain (cohesion)
+```
+
+**How it works:**
+1. **Gradient variance** per block — low variance + not-dark = smooth/artifact
+2. **Continuous score map** (0.0 = clean, 1.0 = artifact) — gaussian-smoothed, no hard block edges
+3. **Blend**: `output = grained × (1 - score³) + ascii × score³`
+   - Clean zones: grained SD image shows through (5% ASCII texture)
+   - Artifact zones: micro-Yent text gradually takes over (up to 90%)
+4. **Double grain**: before ASCII (adds film depth) + after (unifies layers)
+
+The power curve (score³) means only genuinely smooth zones get text. Detailed areas stay clean.
+
+In artifact zones, instead of standard ASCII chars (`·:;=+×*#%@▓█`), the overlay uses **words from micro-Yent** — the LLM's own output fills the gaps in the image it helped create.
+
+### ASCII Filter
+
+16-level charset ` .'·:;~=+×*#%@▓█` with per-cell background tint and bright foreground glyphs.
 
 | Setting | Value |
 |---|---|
 | Charset | `techno` — 16 brightness levels |
 | Foreground boost | 2.8x (vivid glyphs) |
-| Background fill | 0.50 (tinted cells, not just black) |
-| Font | 16px bold monospace |
-| Width | 100 columns |
+| Background fill | 0.40 (tinted cells) |
+| Font | 11px bold monospace |
 
-Negative prompt `"extra fingers, blurry, watermark"` — light touch, fights the worst SD artifacts without killing the style.
-
-Use `--raw` to skip ASCII and get raw pixels.
+Use `--raw` to skip post-processing and get raw pixels.
 
 ## Benchmarks (A100 GPU)
 
@@ -177,11 +207,10 @@ Use `--raw` to skip ASCII and get raw pixels.
 - `go/yent/` — micro-Yent inference subpackage (GGUF, LlamaModel, Q8_0)
 - `go/weights/` — micro-Yent Q8_0 GGUF (71MB) + tokenizer
 
-### Python (training & ONNX inference)
+### Python (training & post-processing)
 - `ort_generate.py` — ONNX Runtime pipeline (zero PyTorch)
-- `train_lora.py` — LoRA style training (PEFT)
-- `ascii_filter.py` — colored ASCII art filter
-- `export_onnx.py` — BK-SDM-Tiny → ONNX export
+- `ascii_filter.py` — colored ASCII art filter + film grain
+- `artifact_mask.py` — artifact detection + Yent text overlay (gradient variance → continuous score → blend)
 - `e2e_test.py` — full pipeline test
 
 ### Weights (not in repo, on GPU server)

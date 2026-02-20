@@ -65,73 +65,71 @@ type moodTemplate struct {
 var moodTemplates = []moodTemplate{
 	{[]string{"sad", "alone", "lonely", "cry", "грустн", "одинок"},
 		[]string{
-			"a lonely figure sinking into",
-			"a wilting flower made of",
-			"a cracked mirror reflecting",
+			"a wilting shape dissolving into",
+			"a cracked surface reflecting",
+			"a fading light sinking through",
 		}},
 	{[]string{"angry", "hate", "stupid", "fuck", "злой", "бесит", "тупой"},
 		[]string{
 			"an explosion of broken",
-			"a screaming face melting into",
-			"fists punching through a wall of",
+			"a violent collision of",
+			"red shapes tearing through",
 		}},
 	{[]string{"love", "heart", "beautiful", "люблю", "сердце", "красив"},
 		[]string{
-			"two glitching hearts entangled in",
+			"two forms entangled in",
 			"a burning rose growing from",
-			"a digital embrace dissolving into",
+			"warm light dissolving into",
 		}},
 	{[]string{"bored", "nothing", "whatever", "скучно", "пофиг"},
 		[]string{
-			"a yawning void eating",
-			"a clock melting over",
-			"an empty chair staring at",
+			"a void slowly eating",
+			"a melting clock over",
+			"an empty space filled with",
 		}},
 	{[]string{"hello", "hi", "hey", "привет", "здорово"},
 		[]string{
-			"a punk hand waving from",
 			"an eye opening through",
-			"a door cracking open revealing",
+			"a crack of light revealing",
+			"a shape emerging from",
 		}},
 	{[]string{"duck", "утк"},
 		[]string{
-			"an angry rubber duck wearing",
-			"a militant duck leading an army of",
-			"a duck on fire walking through",
+			"a strange bird marching through",
+			"a bright shape waddling across",
+			"a bird on fire walking through",
 		}},
 	{[]string{"cat", "кот", "кош"},
 		[]string{
-			"a punk cat with a mohawk sitting on",
-			"a cat with glowing eyes staring at",
-			"a cyberpunk cat hacking into",
+			"a glowing creature staring at",
+			"a cat shape floating above",
+			"two bright eyes watching from",
 		}},
 	{[]string{"death", "die", "dead", "смерть", "умер"},
 		[]string{
-			"a skeleton playing guitar on",
-			"death itself wearing",
 			"bones growing flowers in",
+			"a dark shape playing music on",
+			"fragments assembling into",
 		}},
 }
 
 // Default templates when no mood keyword matches
 var defaultStarters = []string{
-	"a surreal painting of",
-	"a punk portrait of",
-	"a strange scene showing",
-	"a twisted landscape with",
-	"a glitching image of",
+	"a surreal composition of",
+	"abstract shapes forming",
+	"a strange atmosphere of",
+	"a dreamlike landscape with",
+	"floating forms and",
 }
 
 var styleSuffixes = []string{
-	", oil painting, vivid colors, detailed brushwork",
-	", bold strokes, surreal atmosphere, dramatic",
-	", punk aesthetic, neon glow, expressive",
-	", dark symbolic illustration, textured, moody",
-	", street art style, spray paint, raw energy",
+	", oil painting, bold brushstrokes, Chagall",
+	", abstract expressionism, textured, raw",
+	", dark symbolic, moody atmosphere, dreamlike",
+	", street art, spray paint, chaotic energy",
+	", surreal, floating forms, vivid color fields",
+	", Soviet poster style, bold red and black, constructivist",
 }
-
-// Quality suffix appended to every prompt — fights SD artifacts
-const qualitySuffix = ", clean composition, well-defined forms"
 
 // --- Dissonance-based temperature (inspired by Harmonix/HAiKU) ---
 //
@@ -366,7 +364,7 @@ func (pg *PromptGenerator) React(userInput string, maxTokens int, temperature fl
 	}
 
 	suffix := styleSuffixes[pg.rng.Intn(len(styleSuffixes))]
-	return result + suffix + qualitySuffix
+	return result + suffix
 }
 
 // Generate creates an image prompt by completing a seed phrase (legacy mode)
