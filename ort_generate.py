@@ -245,23 +245,39 @@ def generate(onnx_dir, tokenizer_dir, prompt, output_path, seed=42, num_steps=25
     img = np.transpose(img, (1, 2, 0))  # CHW → HWC
     pil_img = Image.fromarray(img)
 
-    # Film grain — always applied to raw images (hides SD artifacts, adds analog style)
-    from ascii_filter import image_to_ascii_png, apply_film_grain
-    pil_img = apply_film_grain(pil_img, intensity=25, seed=seed)
-    print(f"  Film grain applied (intensity=25)")
-
     if ascii_mode:
-        # ASCII filter is the DEFAULT output — technopunk Warhol style
-        print("\n--- Phase 4: ASCII Filter (techno charset) ---")
+        # Artifact-aware pipeline: grain → detect artifacts → Yent's words fill gaps → grain
+        print("\n--- Phase 4: Artifact-Aware Post-Processing ---")
         t0 = time.time()
-        image_to_ascii_png(pil_img, output_path, width=100, charset="techno",
-                          font_size=16, brightness_boost=2.8, bg_level=0.50)
-        print(f"  ASCII render: {time.time()-t0:.3f}s")
-        # Also save raw image with grain alongside
+
+        # Strip style suffix from prompt — keep only Yent's actual words
+        yent_words = prompt
+        for sep in [", oil painting", ", abstract ", ", dark symbolic", ", street art",
+                    ", surreal", ", Soviet poster"]:
+            if sep in yent_words:
+                yent_words = yent_words[:yent_words.index(sep)]
+        # Split into phrase fragments for the text stream
+        words = [w.strip() for w in yent_words.split(",") if w.strip()]
+        if not words:
+            words = [prompt]
+
+        # Save raw image for reference
         raw_path = output_path.rsplit(".", 1)[0] + "_raw.png"
         pil_img.save(raw_path)
-        print(f"\nSaved: {output_path} (ASCII) + {raw_path} (raw+grain)")
+
+        from artifact_mask import full_pipeline
+        # Save temp raw for artifact_mask input (it reads from file)
+        tmp_raw = output_path.rsplit(".", 1)[0] + "_tmp.png"
+        pil_img.save(tmp_raw)
+        full_pipeline(tmp_raw, output_path, yent_words=words)
+        os.remove(tmp_raw)
+
+        print(f"  Post-processing: {time.time()-t0:.3f}s")
+        print(f"  Yent's words: {words}")
+        print(f"\nSaved: {output_path} (artifact-aware) + {raw_path} (raw)")
     else:
+        from artifact_mask import apply_film_grain
+        pil_img = apply_film_grain(pil_img, intensity=22, seed=seed)
         pil_img.save(output_path)
         print(f"\nSaved: {output_path} ({pil_img.size[0]}x{pil_img.size[1]}, grain)")
 

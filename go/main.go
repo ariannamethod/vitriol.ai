@@ -108,10 +108,25 @@ func runWithYent(sdModelDir string) {
 		prompt = prompt[:200]
 	}
 
+	// Extract Yent's words (before style suffix) for ASCII overlay
+	yentWords := prompt
+	for _, sep := range []string{", oil painting", ", abstract ", ", dark symbolic",
+		", street art", ", surreal", ", Soviet poster"} {
+		if idx := strings.Index(yentWords, sep); idx >= 0 {
+			yentWords = yentWords[:idx]
+		}
+	}
+
+	// Save Yent's words alongside the image for post-processing
+	wordsPath := strings.TrimSuffix(outPath, ".png") + ".yent.txt"
+	os.WriteFile(wordsPath, []byte(yentWords), 0644)
+	fmt.Fprintf(os.Stderr, "[yent-words] %s → %s\n", yentWords, wordsPath)
+
 	pg.Free()
 	runtime.GC()
 
 	fmt.Printf("Generated prompt: %q (%.1fs)\n", prompt, time.Since(start).Seconds())
+	fmt.Printf("Yent's words: %q\n", yentWords)
 
 	// Run diffusion with generated prompt
 	runDiffusion(sdModelDir, prompt, outPath, seed, 25, 64, 7.5)

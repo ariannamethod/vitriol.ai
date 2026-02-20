@@ -318,5 +318,15 @@ if __name__ == "__main__":
             output_path = sys.argv[i]
         i += 1
 
+    # Auto-detect .yent.txt sidecar (written by Go pipeline)
+    if custom_text is None:
+        yent_txt = os.path.splitext(image_path)[0] + ".yent.txt"
+        if os.path.exists(yent_txt):
+            with open(yent_txt) as f:
+                words = f.read().strip()
+            if words:
+                custom_text = [w.strip() for w in words.split(",") if w.strip()]
+                print(f"  Loaded Yent's words from {yent_txt}: {custom_text}")
+
     full_pipeline(image_path, output_path, yent_words=custom_text,
                   show_map=show_map)
