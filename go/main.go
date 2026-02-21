@@ -35,6 +35,12 @@ func main() {
 		return
 	}
 
+	// --complete mode: raw text completion (no templates, no style suffix)
+	if os.Args[1] == "--complete" {
+		runComplete()
+		return
+	}
+
 	modelDir := os.Args[1]
 
 	// Check for --yent mode
@@ -175,6 +181,36 @@ func runPromptOnly() {
 	}
 
 	fmt.Println(prompt)
+}
+
+// runComplete does raw text completion — no templates, no style suffix
+// For testing what micro-Yent generates freely
+func runComplete() {
+	if len(os.Args) < 4 {
+		fatal("--complete requires: <micro_yent.gguf> <seed_text> [max_tokens] [temperature]")
+	}
+
+	ggufPath := os.Args[2]
+	seedText := os.Args[3]
+	maxTokens := 50
+	temperature := float32(0.8)
+
+	if len(os.Args) > 4 {
+		fmt.Sscanf(os.Args[4], "%d", &maxTokens)
+	}
+	if len(os.Args) > 5 {
+		var t float64
+		fmt.Sscanf(os.Args[5], "%f", &t)
+		temperature = float32(t)
+	}
+
+	pg, err := NewPromptGenerator(ggufPath)
+	if err != nil {
+		fatal("prompt generator: %v", err)
+	}
+
+	result := pg.Generate(seedText, maxTokens, temperature)
+	fmt.Println(result)
 }
 
 // runDiffusion dispatches to pure Go or ORT pipeline (overridden by init() in ort_pipeline.go)

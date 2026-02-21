@@ -62,7 +62,7 @@ You say something
 2. **CLIP** encodes the reaction to embeddings
 3. **UNet** denoises latent, 10 steps
 4. **VAE** decodes → 512x512 image
-5. **Post-processing**: grain → artifact detection → ASCII/text blend → grain
+5. **Post-processing**: grain → artifact detection → ASCII/text blend → chromatic aberration → vignette → grain
 
 ## The AI Fixes Itself
 
@@ -98,8 +98,9 @@ make run-yent INPUT="who are you"   # full pipeline: Yent reacts → image → a
 ```
 
 `make setup` detects your hardware and downloads the right weights:
-- **GPU** (CUDA) → fp16 ONNX + onnxruntime-gpu (A100: **2 sec/image**)
-- **CPU** → int8 ONNX + onnxruntime (MacBook: **2 min/image**)
+- **GPU** (CUDA) → fp16 ONNX + onnxruntime-gpu (A100: **~2 sec/image**)
+- **CPU** (≥12GB RAM) → fp16 ONNX + onnxruntime
+- **CPU** (<12GB RAM) → int8 ONNX + onnxruntime
 
 See `make info` for detected configuration.
 
@@ -129,7 +130,7 @@ No PyTorch at inference. Personality baked in at training time.
 - `ort_generate.py` — ONNX Runtime inference (zero PyTorch)
 
 ### Weights ([HuggingFace: ataeff/yent.yo](https://huggingface.co/ataeff/yent.yo))
-- `weights/onnx_fp16/` — fp16 ONNX: CLIP + UNet + VAE (948 MB, GPU recommended)
+- `weights/onnx_fp16/` — fp16 ONNX: CLIP + UNet + VAE (948 MB)
 - `weights/onnx_int8/` — int8 ONNX: CLIP + UNet + VAE (476 MB, CPU fallback)
 - `weights/micro-yent/micro-yent-q8_0.gguf` — micro-Yent LLM (71 MB)
 - `weights/clip_tokenizer/` — CLIP BPE tokenizer (vocab.json + merges.txt)

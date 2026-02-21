@@ -83,9 +83,9 @@ var moodTemplates = []moodTemplate{
 		}},
 	{[]string{"bored", "nothing", "whatever", "скучно", "пофиг"},
 		[]string{
-			"a void slowly eating",
-			"a melting clock over",
-			"an empty space filled with",
+			"a person staring at nothing in",
+			"an empty chair in front of",
+			"a figure melting into",
 		}},
 	{[]string{"hello", "hi", "hey", "привет", "здорово"},
 		[]string{
@@ -114,21 +114,24 @@ var moodTemplates = []moodTemplate{
 }
 
 // Default templates when no mood keyword matches
+// Figurative, not abstract — the model knows Picasso, social realism, caricature, graffiti
 var defaultStarters = []string{
-	"a surreal composition of",
-	"abstract shapes forming",
-	"a strange atmosphere of",
-	"a dreamlike landscape with",
-	"floating forms and",
+	"a figure standing in",
+	"a face looking through",
+	"hands reaching for",
+	"a crowd moving through",
+	"a person sitting in front of",
 }
 
+// Style suffixes — match LoRA finetunes: socart, graffiti, caricature, expressionism.
+// Diversity comes from micro-Yent's CONTENT, not style words.
 var styleSuffixes = []string{
-	", oil painting, bold brushstrokes, Chagall",
-	", abstract expressionism, textured, raw",
-	", dark symbolic, moody atmosphere, dreamlike",
-	", street art, spray paint, chaotic energy",
-	", surreal, floating forms, vivid color fields",
-	", Soviet poster style, bold red and black, constructivist",
+	", Picasso late period, distorted figures, bold lines",
+	", social realism, workers, dramatic lighting",
+	", street art, spray paint, concrete wall, graffiti",
+	", caricature, exaggerated features, ink and wash",
+	", propaganda poster, bold red and black, stark contrast",
+	", oil painting, thick impasto, raw brushstrokes",
 }
 
 // --- Dissonance-based temperature (inspired by Harmonix/HAiKU) ---

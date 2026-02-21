@@ -253,7 +253,8 @@ def generate(onnx_dir, tokenizer_dir, prompt, output_path, seed=42, num_steps=25
         # Strip style suffix from prompt — keep only Yent's actual words
         yent_words = prompt
         for sep in [", oil painting", ", abstract ", ", dark symbolic", ", street art",
-                    ", surreal", ", Soviet poster"]:
+                    ", surreal", ", Soviet poster", ", Picasso ", ", social realism",
+                    ", propaganda poster", ", caricature"]:
             if sep in yent_words:
                 yent_words = yent_words[:yent_words.index(sep)]
         # Split into phrase fragments for the text stream

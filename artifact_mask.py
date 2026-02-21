@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import warnings; warnings.filterwarnings("ignore", category=DeprecationWarning)
 """Artifact detector + gradient ASCII overlay for yent.yo.
 
 Detects blurry/smeared zones via gradient variance → continuous score map.
@@ -97,6 +98,43 @@ def apply_film_grain(img, intensity=22, seed=None):
     for c in range(3):
         noise[:,:,c] *= shadow_mask
     return Image.fromarray(np.clip(arr + noise, 0, 255).astype(np.uint8))
+
+
+def apply_chromatic_aberration(img, shift=2):
+    """Cheap lens chromatic aberration — shift R and B channels slightly.
+
+    Creates that "shot on a broken camera" look. Shift is in pixels.
+    """
+    arr = np.array(img)
+    h, w = arr.shape[:2]
+    result = np.zeros_like(arr)
+    # Red channel shifts right+down, Blue shifts left+up, Green stays
+    result[:, :, 1] = arr[:, :, 1]  # green untouched
+    # Red: shift right
+    result[:, shift:, 0] = arr[:, :w-shift, 0]
+    result[:, :shift, 0] = arr[:, :shift, 0]
+    # Blue: shift left
+    result[:, :w-shift, 2] = arr[:, shift:, 2]
+    result[:, w-shift:, 2] = arr[:, w-shift:, 2]
+    return Image.fromarray(result)
+
+
+def apply_vignette(img, strength=0.35):
+    """Radial vignette — darkens edges like an old lens.
+
+    strength: 0.0 = no effect, 1.0 = edges go black.
+    """
+    arr = np.array(img, dtype=np.float32)
+    h, w = arr.shape[:2]
+    cy, cx = h / 2, w / 2
+    max_dist = np.sqrt(cx**2 + cy**2)
+    Y, X = np.ogrid[:h, :w]
+    dist = np.sqrt((X - cx)**2 + (Y - cy)**2) / max_dist
+    # Smooth falloff: 1.0 at center, (1-strength) at corners
+    vignette = 1.0 - strength * (dist ** 1.5)
+    for c in range(3):
+        arr[:, :, c] *= vignette
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
 
 def render_ascii_layer(img, text_fragments, score_map, font_size=11,
@@ -268,12 +306,16 @@ def full_pipeline(image_path, output_path, yent_words=None, block_size=12,
         Image.fromarray((score_map * 255).astype(np.uint8)).resize((aw, ah), Image.BILINEAR)
     ).astype(np.float32) / 255.0
 
+    # Adaptive: if the image is already rich/chaotic (high mean score),
+    # pull back the text coverage — don't drown an expressive image
+    if mean_score > 0.5:
+        # Image is visually dense — reduce text opacity
+        ascii_max = max(0.50, ascii_max - (mean_score - 0.5) * 0.8)
+        score_power = max(2.0, score_power + (mean_score - 0.5) * 2.0)
+        print(f"  Adaptive: dense image, ascii_max={ascii_max:.2f}, power={score_power:.1f}", flush=True)
+
     # Soft curve: always some ASCII, more in artifacts
     # blend = ascii_floor + score^power × (ascii_max - ascii_floor)
-    #   score=0.0 → blend=0.05   (faint texture everywhere)
-    #   score=0.3 → blend=0.07   (barely more)
-    #   score=0.5 → blend=0.16   (light ASCII showing)
-    #   score=0.7 → blend=0.34   (text emerging)
     #   score=0.9 → blend=0.67   (strong text)
     #   score=1.0 → blend=0.90   (full Yent words)
     ascii_floor = 0.05
@@ -286,8 +328,14 @@ def full_pipeline(image_path, output_path, yent_words=None, block_size=12,
     composite = grained_arr * (1.0 - blend_3ch) + ascii_arr * blend_3ch
     composite_img = Image.fromarray(np.clip(composite, 0, 255).astype(np.uint8))
 
-    # Step 6: Second grain pass — lighter, bonds the two layers together
-    final = apply_film_grain(composite_img, intensity=int(grain_intensity * 0.5), seed=137)
+    # Step 6: Chromatic aberration — broken camera aesthetic
+    composite_img = apply_chromatic_aberration(composite_img, shift=2)
+
+    # Step 7: Vignette — dark edges, old lens feel
+    composite_img = apply_vignette(composite_img, strength=0.30)
+
+    # Step 8: Second grain pass — heavier now, bonds the layers + lo-fi finish
+    final = apply_film_grain(composite_img, intensity=int(grain_intensity * 0.7), seed=137)
 
     final.save(output_path)
     sz = os.path.getsize(output_path) // 1024
