@@ -133,9 +133,13 @@ setup-nano-gguf:
 		echo "  nano-Yent: $$(du -sh $(NANO_GGUF_DIR) | cut -f1)"; \
 	fi
 
+HAS_ORT := $(shell pkg-config --exists onnxruntime 2>/dev/null && echo 1 || ([ -f /usr/local/lib/libonnxruntime.so ] || [ -f /usr/local/lib/libonnxruntime.dylib ] || [ -f /opt/homebrew/lib/libonnxruntime.dylib ]) && echo 1)
+BUILD_TAGS := $(if $(HAS_ORT),-tags ort,)
+
 build:
 	@echo "=== Building yentyo ==="
-	cd $(GO_DIR) && go build -o ../yentyo .
+	@echo "  ORT: $(if $(HAS_ORT),yes $(BUILD_TAGS),no — pure Go only)"
+	cd $(GO_DIR) && go build $(BUILD_TAGS) -o ../yentyo .
 	@echo "  Built: yentyo ($$(du -h yentyo | cut -f1))"
 
 # ---- Run Targets ----
@@ -156,7 +160,7 @@ run-yent: $(YENT_GGUF_DIR)/micro-yent-q8_0.gguf $(ONNX_DIR)/unet.onnx
 run-dual: $(YENT_GGUF_DIR)/micro-yent-q8_0.gguf $(NANO_GGUF_DIR)/nano-yent-f16.gguf $(ONNX_DIR)/unet.onnx
 	@echo "=== Dual Yent Mode ==="
 	@echo "Input: $(INPUT)"
-	@./yentyo $(ONNX_DIR) --dual \
+	@ONNX_DIR=$(ONNX_DIR) ./yentyo $(WEIGHTS_DIR) --dual \
 		$(YENT_GGUF_DIR)/micro-yent-q8_0.gguf \
 		$(NANO_GGUF_DIR)/nano-yent-f16.gguf \
 		"$(INPUT)" output.png
@@ -165,7 +169,7 @@ PORT ?= 8080
 serve: $(YENT_GGUF_DIR)/micro-yent-q8_0.gguf $(NANO_GGUF_DIR)/nano-yent-f16.gguf
 	@echo "=== yent.yo Server ==="
 	@echo "Open http://localhost:$(PORT)"
-	@./yentyo --serve $(ONNX_DIR) \
+	@ONNX_DIR=$(ONNX_DIR) ./yentyo --serve $(WEIGHTS_DIR) \
 		$(YENT_GGUF_DIR)/micro-yent-q8_0.gguf \
 		$(NANO_GGUF_DIR)/nano-yent-f16.gguf \
 		$(PORT)

@@ -14,16 +14,18 @@ You say something. Two Yents react — one draws, one roasts you. Where the imag
 |---|---|---|
 | ![who](gallery/who_are_you.png) | ![who2](gallery/who_are_you_2.png) | ![who3](gallery/who_are_you_3.png) |
 | *"who are you"* | *"who are you" (2)* | *"who are you" (3)* |
-| ![beautiful](gallery/you_are_beautiful.png) | ![cat](gallery/draw_me_a_cat.png) | ![fuckoff](gallery/fuck_off.png) |
-| *"you are beautiful"* | *"draw me a cat"* | *"fuck off"* |
-| ![meaning](gallery/the_meaning_of_life.png) | ![nothing](gallery/i_feel_nothing.png) | ![bugs](gallery/my_code_has_bugs.png) |
-| *"the meaning of life"* | *"I feel nothing"* | *"my code has bugs"* |
+| ![fuckoff](gallery/fuck_off.png) | ![fuckoff2](gallery/fuck_off_2.png) | ![fuckoff3](gallery/fuck_off_3.png) |
+| *"fuck off"* | *"fuck off" (2)* | *"fuck off" (3)* |
+| ![beautiful](gallery/you_are_beautiful.png) | ![beautiful2](gallery/you_are_beautiful_2.png) | ![beautiful3](gallery/you_are_beautiful_3.png) |
+| *"you are beautiful"* | *"you are beautiful" (2)* | *"you are beautiful" (3)* |
+| ![test](gallery/test.png) | ![nothing](gallery/i_feel_nothing.png) | ![universe](gallery/the_universe_is_expanding.png) |
+| *"test"* | *"I feel nothing"* | *"the universe is expanding"* |
+| ![cat](gallery/draw_me_a_cat.png) | ![meaning](gallery/the_meaning_of_life.png) | ![bugs](gallery/my_code_has_bugs.png) |
+| *"draw me a cat"* | *"the meaning of life"* | *"my code has bugs"* |
 | ![revolution](gallery/revolution.png) | ![tired](gallery/i_am_so_tired.png) | ![mondays](gallery/i_hate_mondays.png) |
 | *"revolution"* | *"I am so tired"* | *"I hate mondays"* |
-| ![test](gallery/test.png) | ![joke](gallery/tell_me_a_joke.png) | ![universe](gallery/the_universe_is_expanding.png) |
-| *"test"* | *"tell me a joke"* | *"the universe is expanding"* |
-| ![exist](gallery/why_do_we_exist.png) | | |
-| *"why do we exist"* | | |
+| ![joke](gallery/tell_me_a_joke.png) | ![exist](gallery/why_do_we_exist.png) | |
+| *"tell me a joke"* | *"why do we exist"* | |
 
 Every reaction is different. Same input, different seed — different image, different words.
 
