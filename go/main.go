@@ -13,19 +13,24 @@ import (
 	"time"
 )
 
+// Version info
+const yentYoVersion = "2.0"
+
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("yent.yo — Text-to-Image (Pure Go, Zero Dependencies)")
+		fmt.Println("yent.yo v" + yentYoVersion + " — Text-to-Image with Dual Yent")
 		fmt.Println()
 		fmt.Println("Usage:")
 		fmt.Println("  yentyo <sd_model_dir> [prompt] [output.png] [seed] [steps] [latent_size]")
 		fmt.Println("  yentyo <sd_model_dir> --yent <micro_yent.gguf> [seed_phrase] [output.png] [seed]")
+		fmt.Println("  yentyo <sd_model_dir> --dual <micro.gguf> <nano.gguf> [user_input] [output.png]")
 		fmt.Println("  yentyo --prompt-only <micro_yent.gguf> [seed_phrase] [max_tokens] [temperature]")
+		fmt.Println("  yentyo --serve <sd_model_dir> <micro.gguf> <nano.gguf> [port]")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  yentyo bk-sdm-tiny \"a cat on a roof\" cat.png 42 25 64")
-		fmt.Println("  yentyo bk-sdm-tiny --yent micro-yent-f16.gguf \"a painting of\" auto.png 42")
-		fmt.Println("  yentyo --prompt-only micro-yent-q8_0.gguf \"a punk painting of\" 30 0.8")
+		fmt.Println("  yentyo bk-sdm-tiny --dual micro-yent-q8_0.gguf nano-yent-f16.gguf \"hello\"")
+		fmt.Println("  yentyo --serve bk-sdm-tiny micro-yent-q8_0.gguf nano-yent-f16.gguf 8080")
 		os.Exit(0)
 	}
 
@@ -41,7 +46,19 @@ func main() {
 		return
 	}
 
+	// --serve mode: HTTP server with web UI
+	if os.Args[1] == "--serve" {
+		runServe()
+		return
+	}
+
 	modelDir := os.Args[1]
+
+	// Check for --dual mode
+	if len(os.Args) > 2 && os.Args[2] == "--dual" {
+		runDual(modelDir)
+		return
+	}
 
 	// Check for --yent mode
 	if len(os.Args) > 2 && os.Args[2] == "--yent" {
@@ -430,6 +447,89 @@ func tensorMax(t *Tensor) float32 {
 		}
 	}
 	return m
+}
+
+// runDual uses two Yent models in parallel: artist + commentator
+func runDual(sdModelDir string) {
+	if len(os.Args) < 5 {
+		fatal("--dual requires: <micro.gguf> <nano.gguf> [user_input] [output.png] [seed]")
+	}
+
+	microPath := os.Args[3]
+	nanoPath := os.Args[4]
+	userInput := "hello"
+	outPath := "yentyo_dual.png"
+	seed := int64(time.Now().UnixNano())
+
+	if len(os.Args) > 5 {
+		userInput = os.Args[5]
+	}
+	if len(os.Args) > 6 {
+		outPath = os.Args[6]
+	}
+	if len(os.Args) > 7 {
+		fmt.Sscanf(os.Args[7], "%d", &seed)
+	}
+
+	// Load both models
+	dy, err := NewDualYent(microPath, nanoPath)
+	if err != nil {
+		fatal("dual yent: %v", err)
+	}
+	defer dy.Free()
+
+	// ASCII sketch animation (creative process)
+	sketchCfg := DefaultSketchConfig()
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	fmt.Fprintf(os.Stderr, "\n")
+
+	// React: both yents work in parallel
+	start := time.Now()
+	result := dy.React(userInput, 30, 0.8)
+
+	// Stream commentator's roast with typing effect
+	StreamCommentary(result.Roast)
+
+	// Show sketch animation while we prepare for diffusion
+	SketchAnimation(sketchCfg, result.Prompt, rng)
+	SketchTransition(rng)
+
+	fmt.Fprintf(os.Stderr, "[dual] artist=%s prompt=%q (%.1fs)\n",
+		result.ArtistID, result.Prompt, time.Since(start).Seconds())
+
+	// Save yent words for post-processing
+	wordsPath := strings.TrimSuffix(outPath, ".png") + ".yent.txt"
+	os.WriteFile(wordsPath, []byte(result.YentWords), 0644)
+	fmt.Fprintf(os.Stderr, "[yent-words] %s\n", result.YentWords)
+
+	// Free LLMs before diffusion
+	dy.Free()
+	runtime.GC()
+
+	// Print prompt to stdout (for pipeline)
+	fmt.Println(result.Prompt)
+
+	// Run diffusion
+	runDiffusion(sdModelDir, result.Prompt, outPath, seed, 10, 64, 7.5)
+}
+
+// runServe starts HTTP server with web UI
+func runServe() {
+	if len(os.Args) < 5 {
+		fatal("--serve requires: <sd_model_dir> <micro.gguf> <nano.gguf> [port]")
+	}
+
+	sdModelDir := os.Args[2]
+	microPath := os.Args[3]
+	nanoPath := os.Args[4]
+	port := "8080"
+
+	if len(os.Args) > 5 {
+		port = os.Args[5]
+	}
+
+	startServer(sdModelDir, microPath, nanoPath, port)
 }
 
 func fatal(format string, args ...interface{}) {

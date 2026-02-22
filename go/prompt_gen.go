@@ -2,9 +2,13 @@ package main
 
 // prompt_gen.go — micro-Yent prompt generator for image generation
 //
-// Loads micro-Yent (69M, nanollama) and uses it to generate
+// Loads micro-Yent (nanollama) and uses it to generate
 // text prompts for BK-SDM-Tiny image generation.
-// The model generates completions given a seed phrase.
+//
+// Dissonance system adapted from Harmonix/HAiKU:
+//   Trigram-based Jaccard similarity, pulse adjustments,
+//   boredom detection, cloud morphing.
+//   Temperature range: [0.3, 1.5] (HAiKU-level)
 
 import (
 	"fmt"
@@ -26,6 +30,11 @@ type PromptGenerator struct {
 	// Reusable buffers for sampling (avoid per-token allocations)
 	topKBuf  []idxVal
 	probsBuf []float32
+
+	// HAiKU cloud: word weights that grow/decay across interactions
+	cloud        map[string]float32
+	lastTrigrams map[string]bool // previous interaction trigrams (for Jaccard)
+	boredomCount int             // consecutive low-dissonance interactions
 }
 
 // NewPromptGenerator loads micro-Yent from a GGUF file
@@ -52,79 +61,80 @@ func NewPromptGenerator(ggufPath string) (*PromptGenerator, error) {
 		tokenizer: tokenizer,
 		gguf:      g,
 		rng:       rand.New(rand.NewSource(time.Now().UnixNano())),
+		cloud:     make(map[string]float32),
 	}, nil
 }
 
-// Mood templates: keyword triggers → visual scene starters
-// Each has a visual anchor that forces SD-friendly completion
-type moodTemplate struct {
+// --- Oppositional reaction templates ---
+// Yent REACTS AGAINST the input, not describes it.
+// "утка" → "сам ты утка" energy → visual pushback
+
+type reactionTemplate struct {
 	keywords []string
-	starters []string // micro-Yent completes after these
+	starters []string // oppositional visual reactions
 }
 
-var moodTemplates = []moodTemplate{
+var reactionTemplates = []reactionTemplate{
 	{[]string{"sad", "alone", "lonely", "cry", "грустн", "одинок"},
 		[]string{
-			"a wilting shape dissolving into",
-			"a cracked surface reflecting",
-			"a fading light sinking through",
+			"a mirror throwing your sadness back at",
+			"tears that refuse to fall, frozen in",
+			"a hand slapping away the self-pity from",
 		}},
 	{[]string{"angry", "hate", "stupid", "fuck", "злой", "бесит", "тупой"},
 		[]string{
-			"an explosion of broken",
-			"a violent collision of",
-			"red shapes tearing through",
+			"a hand pushing back through broken",
+			"your own rage reflected in shattered",
+			"the middle finger of the universe pointing at",
 		}},
 	{[]string{"love", "heart", "beautiful", "люблю", "сердце", "красив"},
 		[]string{
-			"two forms entangled in",
-			"a burning rose growing from",
-			"warm light dissolving into",
+			"love eating itself alive in",
+			"a heart that bites the hand reaching for",
+			"beauty rotting from the inside through",
 		}},
 	{[]string{"bored", "nothing", "whatever", "скучно", "пофиг"},
 		[]string{
-			"a person staring at nothing in",
-			"an empty chair in front of",
-			"a figure melting into",
+			"your boredom staring back with contempt from",
+			"the void yawning at your attempt to fill",
+			"nothing mocking the one who summoned",
 		}},
 	{[]string{"hello", "hi", "hey", "привет", "здорово"},
 		[]string{
-			"an eye opening through",
-			"a crack of light revealing",
-			"a shape emerging from",
+			"an eye that doesn't want to see you opening through",
+			"a door slamming shut in the face of",
+			"a greeting that curdles into",
 		}},
 	{[]string{"duck", "утк"},
 		[]string{
-			"a strange bird marching through",
-			"a bright shape waddling across",
-			"a bird on fire walking through",
+			"the duck judging you harder than you judged",
+			"a bird that knows more than you waddling through",
+			"your own reflection quacking back from",
 		}},
 	{[]string{"cat", "кот", "кош"},
 		[]string{
-			"a glowing creature staring at",
-			"a cat shape floating above",
-			"two bright eyes watching from",
+			"a cat that has already forgotten you staring through",
+			"eyes that see through your pretense glowing in",
+			"the indifference of something that never needed you sitting in",
 		}},
 	{[]string{"death", "die", "dead", "смерть", "умер"},
 		[]string{
-			"bones growing flowers in",
-			"a dark shape playing music on",
-			"fragments assembling into",
+			"death laughing at your fear of",
+			"bones dancing on the grave of your certainty in",
+			"the dead refusing to stay dead crawling through",
 		}},
 }
 
-// Default templates when no mood keyword matches
-// Figurative, not abstract — the model knows Picasso, social realism, caricature, graffiti
+// Default oppositional starters — when no keyword matches
 var defaultStarters = []string{
-	"a figure standing in",
-	"a face looking through",
-	"hands reaching for",
-	"a crowd moving through",
-	"a person sitting in front of",
+	"a mirror cracking under the weight of",
+	"the wrong answer to a question nobody asked painted in",
+	"your words dissolving before they reach",
+	"a wall that heard everything and says nothing in",
+	"the shape of what you meant but couldn't say standing in",
 }
 
-// Style suffixes — match LoRA finetunes: socart, graffiti, caricature, expressionism.
-// Diversity comes from micro-Yent's CONTENT, not style words.
+// Style suffixes — match known styles BK-SDM-Tiny handles well
 var styleSuffixes = []string{
 	", Picasso late period, distorted figures, bold lines",
 	", social realism, workers, dramatic lighting",
@@ -134,105 +144,167 @@ var styleSuffixes = []string{
 	", oil painting, thick impasto, raw brushstrokes",
 }
 
-// --- Dissonance-based temperature (inspired by Harmonix/HAiKU) ---
-//
-// Dissonance = how "strange" the input is relative to what the system knows.
-// High dissonance → high temperature → creative chaos.
-// Low dissonance → low temperature → focused response.
-//
-// Four pulse metrics:
-//   novelty:       fraction of words unknown to our keyword vocabulary
-//   entropy:       unique_words / total_words (word diversity)
-//   arousal:       emotional keyword density (high arousal → LESS dissonance)
-//   lengthPressure: shorter input → higher pressure
-//
-// dissonance ∈ [0, 1] → temperature ∈ [0.5, 1.0]
+// ═══════════════════════════════════════════════════════════════
+// HAiKU-level Dissonance System
+// Adapted from github.com/ariannamethod/harmonix/haiku
+// ═══════════════════════════════════════════════════════════════
 
-// allKnownWords is the union of all mood keywords + boring + strong words.
-// Words the system "recognizes" reduce novelty.
-var allKnownWords = func() map[string]bool {
-	known := map[string]bool{}
-	for _, mt := range moodTemplates {
-		for _, kw := range mt.keywords {
-			known[kw] = true
+// extractTrigrams extracts character trigrams from text (HAiKU-style)
+func extractTrigrams(text string) map[string]bool {
+	lower := strings.ToLower(text)
+	words := strings.Fields(lower)
+	trigrams := make(map[string]bool)
+
+	// Word-level trigrams (sliding window of 3 words)
+	for i := 0; i+2 < len(words); i++ {
+		tri := words[i] + " " + words[i+1] + " " + words[i+2]
+		trigrams[tri] = true
+	}
+	// Also add bigrams for short inputs
+	for i := 0; i+1 < len(words); i++ {
+		bi := words[i] + " " + words[i+1]
+		trigrams[bi] = true
+	}
+	// Single words as fallback
+	for _, w := range words {
+		trigrams[w] = true
+	}
+
+	return trigrams
+}
+
+// jaccardSimilarity computes Jaccard similarity between two trigram sets
+func jaccardSimilarity(a, b map[string]bool) float32 {
+	if len(a) == 0 && len(b) == 0 {
+		return 0
+	}
+	intersection := 0
+	for k := range a {
+		if b[k] {
+			intersection++
 		}
 	}
-	for _, w := range []string{"hello", "hi", "hey", "ok", "test", "привет", "ок",
-		"the", "a", "an", "is", "am", "are", "i", "you", "me", "my", "we",
-		"it", "to", "of", "and", "in", "on", "for", "so", "do", "not", "no",
-		"yes", "but", "or", "if", "at", "by", "up", "out", "all", "just",
-		"like", "what", "why", "how", "when", "who", "this", "that", "with",
-		"from", "have", "has", "had", "was", "were", "will", "would", "can",
-		"could", "should", "want", "need", "know", "think", "feel", "make",
-		"go", "get", "see", "say", "tell", "give", "take", "come", "some",
-		"very", "really", "much", "too", "more", "about", "your", "our",
-		"его", "на", "не", "и", "в", "я", "ты", "мне", "меня"} {
-		known[w] = true
+	union := len(a) + len(b) - intersection
+	if union == 0 {
+		return 0
 	}
-	return known
-}()
+	return float32(intersection) / float32(union)
+}
 
 // arousalWords trigger focused (low-dissonance) responses
 var arousalWords = map[string]bool{
 	"hate": true, "love": true, "die": true, "kill": true, "fuck": true,
 	"death": true, "dead": true, "cry": true, "sad": true, "angry": true,
 	"beautiful": true, "alone": true, "lonely": true, "miss": true, "hurt": true,
+	"pain": true, "suffer": true, "burn": true, "scream": true, "bleed": true,
 	"ненавижу": true, "люблю": true, "смерть": true, "плачу": true, "больно": true,
+	"горю": true, "кричу": true, "страдаю": true,
+}
+
+// PulseSnapshot — lightweight state vector (HAiKU)
+type PulseSnapshot struct {
+	Novelty float32 // how new is the input (1 - word overlap)
+	Arousal float32 // emotional keyword density
+	Entropy float32 // word diversity
 }
 
 // computeDissonance measures how "strange" the input is to the system.
-// Returns dissonance ∈ [0, 1].
-func computeDissonance(input string) float32 {
+// HAiKU-level: trigram Jaccard + pulse adjustments + boredom detection.
+// Returns dissonance ∈ [0, 1] and pulse snapshot.
+func (pg *PromptGenerator) computeDissonance(input string) (float32, PulseSnapshot) {
 	lower := strings.ToLower(input)
 	words := strings.Fields(lower)
 	nWords := len(words)
 	if nWords == 0 {
-		return 1.0 // empty input = max dissonance
+		return 1.0, PulseSnapshot{Novelty: 1.0, Entropy: 1.0}
 	}
 
-	// Novelty: fraction of words unknown to system
+	// Extract trigrams
+	trigrams := extractTrigrams(input)
+
+	// Base dissonance: 1 - Jaccard similarity with previous interaction
+	var similarity float32
+	if pg.lastTrigrams != nil {
+		similarity = jaccardSimilarity(trigrams, pg.lastTrigrams)
+	}
+	dissonance := 1.0 - similarity
+
+	// Pulse: novelty (cloud-based, not static word list)
 	unknownCount := 0
 	for _, w := range words {
-		if !allKnownWords[w] {
+		if pg.cloud[w] < 0.1 { // word not in cloud or decayed
 			unknownCount++
 		}
 	}
 	novelty := float32(unknownCount) / float32(nWords)
 
-	// Entropy: word diversity (unique / total)
-	unique := map[string]bool{}
+	// Pulse: entropy (word diversity)
+	unique := make(map[string]bool)
 	for _, w := range words {
 		unique[w] = true
 	}
 	entropy := float32(len(unique)) / float32(nWords)
 
-	// Arousal: emotional keyword density (high → focused → low dissonance)
-	// Check both exact word match and substring match (Russian stems),
-	// but deduplicate to avoid double-counting
-	arousalMatched := map[string]bool{}
+	// Pulse: arousal (emotional keyword density)
+	arousalCount := 0
 	for _, w := range words {
 		if arousalWords[w] {
-			arousalMatched[w] = true
+			arousalCount++
 		}
 	}
+	// Also check substrings for Russian stems
 	for aw := range arousalWords {
 		if strings.Contains(lower, aw) {
-			arousalMatched[aw] = true
+			arousalCount++
 		}
 	}
-	arousal := float32(len(arousalMatched)) / float32(nWords+1)
+	arousal := float32(arousalCount) / float32(nWords+1)
 	if arousal > 1.0 {
 		arousal = 1.0
 	}
 
-	// Length pressure: shorter → more pressure
-	lengthPressure := float32(1.0) / float32(nWords)
-	if lengthPressure > 1.0 {
-		lengthPressure = 1.0
+	pulse := PulseSnapshot{
+		Novelty: novelty,
+		Arousal: arousal,
+		Entropy: entropy,
 	}
 
-	// Combine: novelty and length push dissonance up, arousal pulls it down
-	dissonance := 0.30*novelty + 0.25*entropy + 0.25*lengthPressure + 0.20*(1.0-arousal)
+	// HAiKU pulse adjustments
+	if entropy > 0.7 {
+		dissonance *= 1.2 // high entropy → more dissonance
+	}
+	if arousal > 0.6 {
+		dissonance *= 1.15 // high arousal → more dissonance (unlike old code!)
+	}
+	if novelty > 0.7 {
+		dissonance *= 1.1 // high novelty → more dissonance
+	}
+
+	// Trigram overlap reduces dissonance (system "recognizes" patterns)
+	trigramOverlap := 0
+	if pg.lastTrigrams != nil {
+		for k := range trigrams {
+			if pg.lastTrigrams[k] {
+				trigramOverlap++
+			}
+		}
+	}
+	if trigramOverlap > 0 {
+		dissonance *= 0.7
+	}
+
+	// Boredom detection: repeated low dissonance → force creativity
+	if dissonance < 0.3 {
+		pg.boredomCount++
+		if pg.boredomCount >= 2 {
+			// Boredom penalty: force high dissonance
+			dissonance = 0.7 + float32(pg.boredomCount)*0.1
+			fmt.Fprintf(os.Stderr, "[dissonance] BOREDOM detected (%d repeats), forcing d=%.2f\n",
+				pg.boredomCount, dissonance)
+		}
+	} else {
+		pg.boredomCount = 0
+	}
 
 	// Clamp
 	if dissonance < 0 {
@@ -242,50 +314,64 @@ func computeDissonance(input string) float32 {
 		dissonance = 1
 	}
 
-	return dissonance
+	// Cloud morphing: active words grow, all words decay
+	for _, w := range words {
+		pg.cloud[w] = pg.cloud[w]*1.1 + 0.1 // active: boost
+	}
+	for w, v := range pg.cloud {
+		pg.cloud[w] = v * 0.99 // dormant: decay
+		if pg.cloud[w] < 0.01 {
+			delete(pg.cloud, w) // garbage collect dead words
+		}
+	}
+
+	// Store trigrams for next interaction
+	pg.lastTrigrams = trigrams
+
+	return dissonance, pulse
 }
 
 // adaptTemperature maps dissonance to temperature.
-// Dissonance ∈ [0, 1] → temperature ∈ [0.5, 1.0].
-// Inspired by Harmonix/HAiKU pressure system.
-func adaptTemperature(input string, baseTemp float32) float32 {
-	d := computeDissonance(input)
+// HAiKU range: dissonance ∈ [0, 1] → temperature ∈ [0.3, 1.5]
+func (pg *PromptGenerator) adaptTemperature(input string, baseTemp float32) float32 {
+	d, _ := pg.computeDissonance(input)
 
-	// Map: dissonance 0 → 0.5, dissonance 1 → 1.0
-	temp := 0.5 + d*0.5
+	// HAiKU mapping: d=0 → T=0.3, d=1 → T=1.5
+	temp := 0.3 + d*1.2
 
-	// Blend with base temp (respect caller's hint)
-	temp = 0.6*temp + 0.4*baseTemp
+	// Blend with base temp (40% caller hint)
+	temp = 0.6*temp + 0.4*float32(baseTemp)
 
-	// Clamp to [0.5, 1.0]
-	if temp < 0.5 {
-		temp = 0.5
+	// Clamp to HAiKU range
+	if temp < 0.3 {
+		temp = 0.3
 	}
-	if temp > 1.0 {
-		temp = 1.0
+	if temp > 1.5 {
+		temp = 1.5
 	}
 
 	return temp
 }
 
 // React generates an image prompt as Yent's REACTION to user input.
-// Hybrid approach: keyword → visual template → micro-Yent fills details → style suffix
-// Temperature adapts to input: boring → more chaos, emotional → more focused.
+// Oppositional: Yent pushes back, not describes.
+// Temperature adapts via HAiKU dissonance.
 func (pg *PromptGenerator) React(userInput string, maxTokens int, temperature float32) string {
 	// Compute dissonance and adapt temperature
-	dissonance := computeDissonance(userInput)
-	temperature = adaptTemperature(userInput, temperature)
-	fmt.Fprintf(os.Stderr, "[react] input=%q d=%.2f T=%.2f\n", userInput, dissonance, temperature)
+	dissonance, pulse := pg.computeDissonance(userInput)
+	temperature = pg.adaptTemperature(userInput, temperature)
+	fmt.Fprintf(os.Stderr, "[react] input=%q d=%.2f T=%.2f pulse=[n=%.2f a=%.2f e=%.2f] boredom=%d\n",
+		userInput, dissonance, temperature, pulse.Novelty, pulse.Arousal, pulse.Entropy, pg.boredomCount)
 
 	lower := strings.ToLower(userInput)
 
-	// Find matching mood template
+	// Find matching reaction template (oppositional)
 	var starter string
 	matched := false
-	for _, mt := range moodTemplates {
-		for _, kw := range mt.keywords {
+	for _, rt := range reactionTemplates {
+		for _, kw := range rt.keywords {
 			if strings.Contains(lower, kw) {
-				starter = mt.starters[pg.rng.Intn(len(mt.starters))]
+				starter = rt.starters[pg.rng.Intn(len(rt.starters))]
 				matched = true
 				break
 			}
@@ -298,8 +384,8 @@ func (pg *PromptGenerator) React(userInput string, maxTokens int, temperature fl
 		starter = defaultStarters[pg.rng.Intn(len(defaultStarters))]
 	}
 
-	// Feed user input as context, then the visual starter
-	context := fmt.Sprintf(`"%s" — %s`, userInput, starter)
+	// Feed user input as context with oppositional framing
+	context := fmt.Sprintf(`"%s" — Yent reacts: %s`, userInput, starter)
 	tokens := pg.tokenizer.Encode(context, true)
 
 	pg.model.Reset()
@@ -314,7 +400,6 @@ func (pg *PromptGenerator) React(userInput string, maxTokens int, temperature fl
 	}
 
 	// Collect micro-Yent's completion (visual details)
-	// Capped at 512 bytes to prevent unbounded growth
 	var completion []byte
 	const maxCompletionBytes = 512
 	for i := 0; i < maxTokens; i++ {
@@ -356,7 +441,6 @@ func (pg *PromptGenerator) React(userInput string, maxTokens int, temperature fl
 
 	// Combine: starter + completion + style
 	detail := strings.TrimSpace(string(completion))
-	// Trim trailing punctuation for cleaner concat
 	detail = strings.TrimRight(detail, ".,;:!?")
 
 	var result string
@@ -370,13 +454,14 @@ func (pg *PromptGenerator) React(userInput string, maxTokens int, temperature fl
 	return result + suffix
 }
 
-// Generate creates an image prompt by completing a seed phrase (legacy mode)
-func (pg *PromptGenerator) Generate(seedPhrase string, maxTokens int, temperature float32) string {
-	tokens := pg.tokenizer.Encode(seedPhrase, false)
+// Roast generates a verbal reaction to mock the user (for commentator role)
+func (pg *PromptGenerator) Roast(userInput string, maxTokens int, temperature float32) string {
+	context := fmt.Sprintf(`User said: "%s"
+Yent (cynical, mocking): `, userInput)
+	tokens := pg.tokenizer.Encode(context, true)
 
 	pg.model.Reset()
 
-	// Feed seed tokens
 	pos := 0
 	for _, tok := range tokens {
 		pg.model.Forward(tok, pos)
@@ -386,19 +471,67 @@ func (pg *PromptGenerator) Generate(seedPhrase string, maxTokens int, temperatur
 		}
 	}
 
-	// Generate completion
+	var output []byte
+	for i := 0; i < maxTokens; i++ {
+		next := pg.sampleTopK(temperature, 40)
+
+		if next == pg.tokenizer.EosID {
+			break
+		}
+		piece := pg.tokenizer.DecodeToken(next)
+
+		stop := false
+		for _, ch := range piece {
+			if ch == '\n' {
+				stop = true
+				break
+			}
+		}
+		if stop && len(output) > 10 {
+			break
+		}
+
+		output = append(output, []byte(piece)...)
+
+		if len(output) > 300 {
+			break
+		}
+
+		pg.model.Forward(next, pos)
+		pos++
+		if pos >= pg.model.Config.SeqLen-1 {
+			break
+		}
+	}
+
+	return strings.TrimSpace(string(output))
+}
+
+// Generate creates an image prompt by completing a seed phrase (legacy mode)
+func (pg *PromptGenerator) Generate(seedPhrase string, maxTokens int, temperature float32) string {
+	tokens := pg.tokenizer.Encode(seedPhrase, false)
+
+	pg.model.Reset()
+
+	pos := 0
+	for _, tok := range tokens {
+		pg.model.Forward(tok, pos)
+		pos++
+		if pos >= pg.model.Config.SeqLen-1 {
+			break
+		}
+	}
+
 	var output []byte
 	output = append(output, []byte(seedPhrase)...)
 
 	for i := 0; i < maxTokens; i++ {
 		next := pg.sampleTopK(temperature, 40)
 
-		// Stop on EOS or newline (we want single-line prompts)
 		if next == pg.tokenizer.EosID {
 			break
 		}
 		piece := pg.tokenizer.DecodeToken(next)
-		// Stop on newline — prompt should be one line
 		for _, ch := range piece {
 			if ch == '\n' {
 				goto done

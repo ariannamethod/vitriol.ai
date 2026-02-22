@@ -15,6 +15,7 @@ ONNX_FP16_DIR = $(WEIGHTS_DIR)/onnx_fp16
 ONNX_INT8_DIR = $(WEIGHTS_DIR)/onnx_int8
 CLIP_TOK_DIR = $(WEIGHTS_DIR)/clip_tokenizer
 YENT_GGUF_DIR = $(WEIGHTS_DIR)/micro-yent
+NANO_GGUF_DIR = $(WEIGHTS_DIR)/nano-yent
 
 # ---- Hardware Detection ----
 
@@ -52,14 +53,15 @@ else
   ORT_PKG = onnxruntime
 endif
 
-.PHONY: setup build run run-yent info clean setup-weights setup-tokenizer setup-yent-gguf deps
+.PHONY: setup build run run-yent run-dual serve info clean setup-weights setup-tokenizer setup-yent-gguf setup-nano-gguf deps
 
 # ---- Main Targets ----
 
-setup: info deps setup-weights setup-tokenizer setup-yent-gguf build
+setup: info deps setup-weights setup-tokenizer setup-yent-gguf setup-nano-gguf build
 	@echo ""
 	@echo "=== Ready! ==="
-	@echo "  Run:  make run-yent INPUT=\"who are you\""
+	@echo "  Run:  make run-dual INPUT=\"who are you\""
+	@echo "  Or:   make serve"
 	@echo "  Or:   make run PROMPT=\"a cat on a roof\""
 
 info:
@@ -118,6 +120,19 @@ setup-yent-gguf:
 		echo "  micro-Yent: $$(du -sh $(YENT_GGUF_DIR) | cut -f1)"; \
 	fi
 
+setup-nano-gguf:
+	@if [ -f "$(NANO_GGUF_DIR)/nano-yent-f16.gguf" ]; then \
+		echo "  nano-Yent GGUF already present."; \
+	else \
+		echo "Downloading nano-Yent F16 (88 MB)..."; \
+		mkdir -p $(NANO_GGUF_DIR); \
+		python3 -c "from huggingface_hub import hf_hub_download; \
+			hf_hub_download('$(HF_REPO)', 'weights/nano-yent/nano-yent-f16.gguf', \
+			local_dir='.hf_cache')"; \
+		cp .hf_cache/weights/nano-yent/nano-yent-f16.gguf $(NANO_GGUF_DIR)/; \
+		echo "  nano-Yent: $$(du -sh $(NANO_GGUF_DIR) | cut -f1)"; \
+	fi
+
 build:
 	@echo "=== Building yentyo ==="
 	cd $(GO_DIR) && go build -o ../yentyo .
@@ -137,6 +152,23 @@ run-yent: $(YENT_GGUF_DIR)/micro-yent-q8_0.gguf $(ONNX_DIR)/unet.onnx
 	python3 artifact_mask.py output_raw.png output.png --text "$$WORDS"; \
 	echo ""; \
 	echo "=== Done: output.png ==="
+
+run-dual: $(YENT_GGUF_DIR)/micro-yent-q8_0.gguf $(NANO_GGUF_DIR)/nano-yent-f16.gguf $(ONNX_DIR)/unet.onnx
+	@echo "=== Dual Yent Mode ==="
+	@echo "Input: $(INPUT)"
+	@./yentyo $(ONNX_DIR) --dual \
+		$(YENT_GGUF_DIR)/micro-yent-q8_0.gguf \
+		$(NANO_GGUF_DIR)/nano-yent-f16.gguf \
+		"$(INPUT)" output.png
+
+PORT ?= 8080
+serve: $(YENT_GGUF_DIR)/micro-yent-q8_0.gguf $(NANO_GGUF_DIR)/nano-yent-f16.gguf
+	@echo "=== yent.yo Server ==="
+	@echo "Open http://localhost:$(PORT)"
+	@./yentyo --serve $(ONNX_DIR) \
+		$(YENT_GGUF_DIR)/micro-yent-q8_0.gguf \
+		$(NANO_GGUF_DIR)/nano-yent-f16.gguf \
+		$(PORT)
 
 PROMPT ?= a surreal painting of chaos
 run:
