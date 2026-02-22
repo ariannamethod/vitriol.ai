@@ -2,9 +2,6 @@ package main
 
 import (
 	"fmt"
-	"image"
-	"image/color"
-	"image/png"
 	"math"
 	"math/rand"
 	"os"
@@ -150,13 +147,16 @@ func runWithYent(sdModelDir string) {
 	os.WriteFile(wordsPath, []byte(yentWords), 0644)
 	fmt.Fprintf(os.Stderr, "[yent-words] %s → %s\n", yentWords, wordsPath)
 
+	// Set words for post-processing pipeline
+	postProcessWords = yentWords
+
 	pg.Free()
 	runtime.GC()
 
 	fmt.Printf("Generated prompt: %q (%.1fs)\n", prompt, time.Since(start).Seconds())
 	fmt.Printf("Yent's words: %q\n", yentWords)
 
-	// Run diffusion with generated prompt
+	// Run diffusion with generated prompt (post-processing applied automatically)
 	runDiffusion(sdModelDir, prompt, outPath, seed, 10, 64, 7.5)
 }
 
@@ -232,6 +232,9 @@ func runComplete() {
 
 // runDiffusion dispatches to pure Go or ORT pipeline (overridden by init() in ort_pipeline.go)
 var runDiffusion = runDiffusionPureGo
+
+// Package-level state for post-processing (set before runDiffusion)
+var postProcessWords string // Yent's words for ASCII overlay
 
 func runDiffusionPureGo(modelDir, prompt, outPath string, seed int64, numSteps, latentSize int, guidanceScale float32) {
 	fmt.Printf("Model: %s\n", modelDir)
@@ -393,30 +396,14 @@ func randomLatent(n, c, h, w int, seed int64) *Tensor {
 }
 
 func savePNG(tensor *Tensor, path string) error {
-	H := tensor.Shape[2]
-	W := tensor.Shape[3]
-	rgba := image.NewRGBA(image.Rect(0, 0, W, H))
+	rgba := tensorToRGBA(tensor)
 
-	for y := 0; y < H; y++ {
-		for x := 0; x < W; x++ {
-			r := tensor.Data[0*H*W+y*W+x]
-			g := tensor.Data[1*H*W+y*W+x]
-			b := tensor.Data[2*H*W+y*W+x]
-			rgba.Set(x, y, color.RGBA{
-				R: clampByte((r + 1) / 2),
-				G: clampByte((g + 1) / 2),
-				B: clampByte((b + 1) / 2),
-				A: 255,
-			})
-		}
+	// Apply post-processing if yentWords available
+	if postProcessWords != "" {
+		rgba = PostProcess(rgba, postProcessWords)
 	}
 
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return png.Encode(f, rgba)
+	return saveProcessedPNG(rgba, path)
 }
 
 func clampByte(v float32) uint8 {
@@ -503,6 +490,9 @@ func runDual(sdModelDir string) {
 	os.WriteFile(wordsPath, []byte(result.YentWords), 0644)
 	fmt.Fprintf(os.Stderr, "[yent-words] %s\n", result.YentWords)
 
+	// Set words for post-processing pipeline
+	postProcessWords = result.YentWords
+
 	// Free LLMs before diffusion
 	dy.Free()
 	runtime.GC()
@@ -510,7 +500,7 @@ func runDual(sdModelDir string) {
 	// Print prompt to stdout (for pipeline)
 	fmt.Println(result.Prompt)
 
-	// Run diffusion
+	// Run diffusion (post-processing applied automatically via savePNG)
 	runDiffusion(sdModelDir, result.Prompt, outPath, seed, 10, 64, 7.5)
 }
 

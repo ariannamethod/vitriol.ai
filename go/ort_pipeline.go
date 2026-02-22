@@ -5,9 +5,6 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
-	"image"
-	"image/color"
-	"image/png"
 	"math"
 	"math/rand"
 	"os"
@@ -591,28 +588,14 @@ func makeNoise(n, c, h, w int, seed int64) []float32 {
 }
 
 func saveORTPNG(data []float32, H, W int, path string) error {
-	rgba := image.NewRGBA(image.Rect(0, 0, W, H))
+	rgba := float32ToRGBA(data, H, W)
 
-	for y := 0; y < H; y++ {
-		for x := 0; x < W; x++ {
-			r := data[0*H*W+y*W+x]
-			g := data[1*H*W+y*W+x]
-			b := data[2*H*W+y*W+x]
-			rgba.Set(x, y, color.RGBA{
-				R: clampByte((r + 1) / 2),
-				G: clampByte((g + 1) / 2),
-				B: clampByte((b + 1) / 2),
-				A: 255,
-			})
-		}
+	// Apply post-processing if yentWords available
+	if postProcessWords != "" {
+		rgba = PostProcess(rgba, postProcessWords)
 	}
 
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return png.Encode(f, rgba)
+	return saveProcessedPNG(rgba, path)
 }
 
 // Ensure unsafe is used (needed for potential future CGO interop)
